@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ホスト管理 | 反射神経測定システム</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <a class="back" href="/">←</a>
+      <div><h1>ホスト管理</h1><p>部屋の作成と参加者管理</p></div>
+    </header>
+    <section id="createPanel" class="panel">
+      <h2>測定部屋を作成</h2>
+      <p>部屋を作成すると、参加者に共有する6桁の番号が発行されます。</p>
+      <button id="createRoomBtn" class="primary">部屋を作成</button>
+      <p id="createError" class="error" role="alert"></p>
+    </section>
+    <section id="roomPanel" class="hidden">
+      <div class="panel room-code-panel">
+        <div><span class="eyebrow">ROOM CODE</span><div id="roomCode" class="room-code">------</div></div>
+        <div class="room-meta"><span id="roomState" class="status online">待機中</span><span id="participantCount">0 / 10 台</span></div>
+      </div>
+      <section class="panel">
+        <div class="section-heading"><h2>参加者一覧</h2><span id="updatedAt" class="muted">接続待ち</span></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>参加者ID</th><th>参加者名</th><th>接続状態</th><th>参加状態</th><th>操作</th></tr></thead>
+            <tbody id="participantsBody"><tr><td colspan="5" class="empty">参加者はいません。</td></tr></tbody>
+          </table>
+        </div>
+        <p class="hint">測定開始後の参加者は、次の試行から参加する予定として登録されます。測定エンジンは次段階で実装します。</p>
+      </section>
+      <section class="panel action-panel">
+        <div><h2>部屋の管理</h2><p>第2段階では測定開始機能はまだありません。</p></div>
+        <button id="closeRoomBtn" class="danger">部屋を終了</button>
+      </section>
+      <p id="hostMessage" class="message" aria-live="polite"></p>
+    </section>
+  </main>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/host.js"></script>
+</body>
+</html>

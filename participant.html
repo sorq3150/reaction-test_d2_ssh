@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>参加者 | 反射神経測定システム</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <main class="shell narrow">
+    <header class="topbar">
+      <a class="back" href="/">←</a>
+      <div><h1>参加者</h1><p>測定部屋への接続</p></div>
+    </header>
+    <section id="joinPanel" class="panel">
+      <h2>部屋に参加</h2>
+      <label for="roomInput">6桁の部屋番号</label>
+      <input id="roomInput" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="例：123456">
+      <label for="nameInput">参加者名</label>
+      <input id="nameInput" maxlength="24" autocomplete="nickname" placeholder="名前を入力">
+      <button id="joinBtn" class="primary full">接続する</button>
+      <p id="joinError" class="error" role="alert"></p>
+      <div id="reconnectNotice" class="notice hidden">このブラウザに以前の参加情報があります。部屋番号と参加者名を入力して再接続できます。</div>
+    </section>
+    <section id="participantPanel" class="panel hidden">
+      <span class="eyebrow">CONNECTED ROOM</span>
+      <div id="joinedRoom" class="room-code small-code">------</div>
+      <div class="info-row"><span>参加者名</span><strong id="joinedName">-</strong></div>
+      <div class="info-row"><span>参加者ID</span><code id="joinedId">-</code></div>
+      <div class="info-row"><span>接続状態</span><span id="connectionState" class="status online">接続中</span></div>
+      <div id="joinStatus" class="notice">ホストの操作を待っています。</div>
+      <button id="leaveBtn" class="secondary full">この部屋から退出</button>
+    </section>
+    <footer>測定機能は次段階で実装します</footer>
+  </main>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/participant.js"></script>
+</body>
+</html>
