@@ -1,94 +1,18 @@
-(() => {
-  const socket = io();
-  const $ = (id) => document.getElementById(id);
-  let room = null;
-  let hostToken = localStorage.getItem("rt_host_token");
-  let reconnectAttempted = false;
-
-  function showRoom(data) {
-    room = data;
-    $("createPanel").classList.add("hidden");
-    $("roomPanel").classList.remove("hidden");
-    $("roomCode").textContent = data.roomCode;
-    $("roomState").textContent = data.status === "measuring" ? "測定中（次段階）" : "待機中";
-    renderParticipants(data.participants || []);
-  }
-  function renderParticipants(list) {
-    $("participantCount").textContent = `${list.length} / 10 台`;
-    $("updatedAt").textContent = `更新：${new Date().toLocaleTimeString("ja-JP")}`;
-    const body = $("participantsBody");
-    if (!list.length) {
-      body.innerHTML = '<tr><td colspan="5" class="empty">参加者はいません。</td></tr>';
-      return;
-    }
-    body.replaceChildren();
-    list.forEach(p => {
-      const tr = document.createElement("tr");
-      const cells = [p.participantId.slice(0, 8), p.name, p.connected ? "接続中" : "切断", p.joinedDuringSession ? "次の試行から参加予定" : "参加済み"];
-      cells.forEach((value, i) => {
-        const td = document.createElement("td");
-        td.textContent = value;
-        if (i === 2) {
-          const span = document.createElement("span");
-          span.className = `status ${p.connected ? "online" : "offline"}`;
-          span.textContent = value;
-          td.replaceChildren(span);
-        }
-        tr.appendChild(td);
-      });
-      const action = document.createElement("td");
-      const btn = document.createElement("button");
-      btn.className = "mini-button";
-      btn.textContent = "退出";
-      btn.addEventListener("click", () => {
-        if (confirm(`${p.name} さんを部屋から退出させますか？`)) {
-          socket.emit("host:remove-participant", { participantId: p.participantId });
-        }
-      });
-      action.appendChild(btn);
-      tr.appendChild(action);
-      body.appendChild(tr);
-    });
-  }
-
-  $("createRoomBtn").addEventListener("click", () => {
-    $("createRoomBtn").disabled = true;
-    socket.emit("host:create-room", {}, (res) => {
-      $("createRoomBtn").disabled = false;
-      if (!res?.ok) { $("createError").textContent = res?.error || "部屋を作成できませんでした。"; return; }
-      hostToken = res.hostToken;
-      localStorage.setItem("rt_host_token", hostToken);
-      showRoom(res.room);
-    });
-  });
-
-  $("closeRoomBtn").addEventListener("click", () => {
-    if (!confirm("部屋を終了しますか？参加者は切断されます。")) return;
-    socket.emit("host:close-room", {}, (res) => {
-      if (res?.ok) {
-        localStorage.removeItem("rt_host_token");
-        location.reload();
-      } else $("hostMessage").textContent = res?.error || "終了できませんでした。";
-    });
-  });
-
-  socket.on("connect", () => {
-    if (hostToken && !reconnectAttempted) {
-      reconnectAttempted = true;
-      socket.emit("host:reconnect", { hostToken }, (res) => {
-        if (res?.ok) showRoom(res.room);
-        else {
-          localStorage.removeItem("rt_host_token");
-          hostToken = null;
-        }
-      });
-    }
-  });
-  socket.on("room:update", (data) => { if (room) showRoom(data); });
-  socket.on("room:closed", () => {
-    $("hostMessage").textContent = "部屋が終了しました。";
-    localStorage.removeItem("rt_host_token");
-    setTimeout(() => location.reload(), 1600);
-  });
-  socket.on("connect_error", () => { $("hostMessage").textContent = "サーバーに接続できません。通信状態を確認してください。"; });
-})();
+(()=>{const socket=io(),$=id=>document.getElementById(id);let room=null,hostToken=localStorage.getItem('rt_host_token'),tried=false,resultRows=[];
+function show(data){room=data;$('createPanel').classList.add('hidden');$('roomPanel').classList.remove('hidden');$('roomCode').textContent=data.roomCode;$('roomState').textContent=({waiting:'待機中',measuring:'測定中',paused:'一時停止',finished:'測定終了'})[data.status]||data.status;$('participantCount').textContent=`${data.participants.length} / 10 台`;$('progress').textContent=data.trialNumber?`${data.trialNumber} / ${data.settings.trials} 回`:'未開始';if(data.settings){$('trials').value=data.settings.trials;$('minWait').value=data.settings.minWaitMs/1000;$('maxWait').value=data.settings.maxWaitMs/1000;}render(data.participants);$('updatedAt').textContent='更新：'+new Date().toLocaleTimeString('ja-JP');}
+function render(list){const body=$('participantsBody');body.replaceChildren();if(!list.length){body.innerHTML='<tr><td colspan="5" class="empty">参加者はいません。</td></tr>';return;}list.forEach(p=>{const tr=document.createElement('tr');[p.participantId.slice(0,8),p.name,p.connected?'接続中':'切断',p.joinedDuringSession?'途中参加':'参加済み'].forEach(v=>{const td=document.createElement('td');td.textContent=v;tr.append(td)});const td=document.createElement('td'),b=document.createElement('button');b.className='mini-button';b.textContent='退出';b.onclick=()=>{if(confirm(p.name+' さんを退出させますか？'))socket.emit('host:remove-participant',{participantId:p.participantId},r=>{if(!r.ok)$('hostMessage').textContent=r.error})};td.append(b);tr.append(td);body.append(tr)});}
+$('createRoomBtn').onclick=()=>socket.emit('host:create-room',{},r=>{if(!r.ok)return $('createError').textContent=r.error;hostToken=r.hostToken;localStorage.setItem('rt_host_token',hostToken);show(r.room)});
+$('saveSettingsBtn').onclick=()=>socket.emit('host:update-settings',{trials:$('trials').value,minWaitSeconds:$('minWait').value,maxWaitSeconds:$('maxWait').value},r=>{$('settingsMessage').textContent=r.ok?'設定を保存しました。':r.error});
+$('startBtn').onclick=()=>socket.emit('host:start-measurement',{},r=>$('hostMessage').textContent=r.ok?'測定を開始しました。':r.error);
+$('pauseBtn').onclick=()=>socket.emit('host:pause-measurement',{},r=>$('hostMessage').textContent=r.ok?'一時停止しました。':r.error);
+$('resumeBtn').onclick=()=>socket.emit('host:resume-measurement',{},r=>$('hostMessage').textContent=r.ok?'測定を再開しました。':r.error);
+$('endBtn').onclick=()=>{if(confirm('測定を終了しますか？'))socket.emit('host:end-measurement',{},r=>$('hostMessage').textContent=r.ok?'測定を終了しました。':r.error)};
+$('closeRoomBtn').onclick=()=>{if(confirm('部屋を終了しますか？'))socket.emit('host:close-room',{},r=>{if(r.ok){localStorage.removeItem('rt_host_token');location.reload()}else $('hostMessage').textContent=r.error})};
+function stats(rows){const valid=rows.filter(x=>x.status==='recorded'&&Number.isFinite(Number(x.reactionTimeMs))).map(x=>Number(x.reactionTimeMs)).sort((a,b)=>a-b);const n=valid.length;const avg=n?valid.reduce((a,b)=>a+b,0)/n:0;const med=n?(n%2?valid[(n-1)/2]:(valid[n/2-1]+valid[n/2])/2):0;const sd=n?Math.sqrt(valid.reduce((a,b)=>a+(b-avg)**2,0)/n):0;$('validCount').textContent=n;$('avgRt').textContent=n?avg.toFixed(2)+' ms':'—';$('medianRt').textContent=n?med.toFixed(2)+' ms':'—';$('sdRt').textContent=n?sd.toFixed(2)+' ms':'—';}
+function renderResults(rows){resultRows=rows;$('resultCount').textContent=`回収 ${rows.length} 件`;$('csvBtn').disabled=!rows.length;$('xlsxBtn').disabled=!rows.length;stats(rows);const body=$('resultsBody');body.replaceChildren();if(!rows.length){body.innerHTML='<tr><td colspan="5" class="empty">回収された結果はありません。</td></tr>';return;}rows.slice().sort((a,b)=>a.participantName.localeCompare(b.participantName,'ja')||a.trialNumber-b.trialNumber).forEach(x=>{const tr=document.createElement('tr');[x.participantName,x.trialNumber,x.reactionTimeMs==null?'—':Number(x.reactionTimeMs).toFixed(3),x.inputType,x.status==='recorded'?'有効':`無効 (${x.reason||x.status})`].forEach(v=>{const td=document.createElement('td');td.textContent=String(v);tr.append(td)});body.append(tr);});}
+$('fetchResultsBtn').onclick=()=>socket.emit('host:get-results',{},r=>{if(!r.ok)return $('exportMessage').textContent=r.error;renderResults(r.rows);$('exportMessage').textContent='サーバーから結果を取得しました。';});
+function downloadBlob(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();URL.revokeObjectURL(url);}
+$('csvBtn').onclick=()=>{const cols=['参加者名','参加者ID','試行番号','反応時間(ms)','入力方式','状態','理由','画面表示状態','時計オフセット(ms)','記録日時'];const rows=resultRows.map(x=>[x.participantName,x.participantId,x.trialNumber,x.reactionTimeMs??'',x.inputType,x.status,x.reason,x.visibilityState,x.clockOffsetMs,x.createdAt]);const esc=v=>'"'+String(v??'').replace(/"/g,'""')+'"';const csv='\\uFEFF'+[cols,...rows].map(r=>r.map(esc).join(',')).join('\\r\\n');downloadBlob(new Blob([csv],{type:'text/csv;charset=utf-8'}),'reaction-results.csv');};
+$('xlsxBtn').onclick=()=>{if(!window.XLSX){$('exportMessage').textContent='Excel出力ライブラリを読み込めません。CSV出力を利用してください。';return;}const data=[['参加者名','参加者ID','試行番号','反応時間(ms)','入力方式','状態','理由','画面表示状態','時計オフセット(ms)','記録日時'],...resultRows.map(x=>[x.participantName,x.participantId,x.trialNumber,x.reactionTimeMs??'',x.inputType,x.status,x.reason,x.visibilityState,x.clockOffsetMs,x.createdAt])];const ws=XLSX.utils.aoa_to_sheet(data),wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'測定結果');XLSX.writeFile(wb,'reaction-results.xlsx');};
+socket.on('results:updated',d=>$('resultCount').textContent=`サーバー回収 ${d.count} 件（再取得してください）`);
+socket.on('connect',()=>{if(hostToken&&!tried){tried=true;socket.emit('host:reconnect',{hostToken},r=>{if(r.ok)show(r.room);else{localStorage.removeItem('rt_host_token');hostToken=null}})}});socket.on('room:update',show);socket.on('session:finished',()=>$('hostMessage').textContent='全試行が終了しました。');socket.on('connect_error',()=>$('hostMessage').textContent='サーバーに接続できません。');})();
