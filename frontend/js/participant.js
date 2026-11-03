@@ -1,16 +1,395 @@
-(()=>{const socket=io(),$=id=>document.getElementById(id);let session=null,offset=0,active=false,armed=false,trialNo=0,scheduledTimer=null,changePerf=0,trialResults=[];const DB='reactionTestStage3',STORE='trials';let saveQueue=Promise.resolve();
-function openDB(){return new Promise((resolve,reject)=>{const q=indexedDB.open(DB,1);q.onupgradeneeded=()=>q.result.createObjectStore(STORE,{keyPath:'id',autoIncrement:true});q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(q.error)});}async function save(row){saveQueue=saveQueue.then(async()=>{try{const db=await openDB();await new Promise((res,rej)=>{const tx=db.transaction(STORE,'readwrite');tx.objectStore(STORE).add(row);tx.oncomplete=res;tx.onerror=()=>rej(tx.error)});$('savedCount').textContent=String(Number($('savedCount').textContent)+1)}catch(e){$('trialInfo').textContent='端末内保存に失敗しました：'+e.message}});return saveQueue;}
-async function syncClock(){const samples=[];for(let i=0;i<5;i++){const t0=performance.now();const local0=Date.now();const data=await new Promise(resolve=>socket.emit('clock:ping',{},resolve));const t1=performance.now();samples.push({rtt:t1-t0,offset:data.serverTime-(local0+(t1-t0)/2)})}samples.sort((a,b)=>a.rtt-b.rtt);offset=samples[0].offset;return samples[0].rtt;}
-function paint(state,text){$('stimulus').className='stimulus '+state;$('stimulus').textContent=text;}
-function onInput(type){if(!active)return;if(!armed){if($('stimulus').classList.contains('waiting')){active=false;paint('invalid','早押し');$('trialInfo').textContent='早押しとして扱いました。';save({recordId:crypto.randomUUID(),sessionRoom:session.roomCode,participantId:session.participantId,trialNumber:trialNo,reactionTimeMs:null,inputType:type,status:'invalid',reason:'early',createdAt:new Date().toISOString()});socket.emit('participant:trial-result',{trialNumber:trialNo,status:'early'});}return;}armed=false;active=false;const inputPerf=performance.now(),rt=inputPerf-changePerf;paint('result',rt.toFixed(1)+' ms');$('lastResult').textContent=rt.toFixed(1)+' ms';$('trialInfo').textContent=`第${trialNo}回：記録しました（${type}）`;const row={recordId:crypto.randomUUID(),sessionRoom:session.roomCode,participantId:session.participantId,participantName:session.name,trialNumber:trialNo,reactionTimeMs:Number(rt.toFixed(3)),inputType:type,localChangePerf:changePerf,inputPerf,clockOffsetMs:offset,status:'recorded',visibilityState:document.visibilityState,createdAt:new Date().toISOString()};trialResults.push(row);save(row);socket.emit('participant:trial-result',{trialNumber:trialNo,status:'recorded'});}
-function schedule(data){clearTimeout(scheduledTimer);trialNo=data.trialNumber;active=true;armed=false;paint('waiting','赤：待機');$('trialInfo').textContent=`第${trialNo}回：切り替わりを待っています`;
-const localTarget=data.scheduledAt-offset;const delay=Math.max(0,localTarget-Date.now());scheduledTimer=setTimeout(()=>{if(!active)return;requestAnimationFrame(()=>{if(!active)return;paint('go','緑：押してください');changePerf=performance.now();armed=true;});},delay);}
-$('joinBtn').onclick=()=>{const roomCode=$('roomInput').value.trim(),name=$('nameInput').value.trim();$('joinError').textContent='';socket.emit('participant:join',{roomCode,name},async r=>{if(!r.ok)return $('joinError').textContent=r.error;session={roomCode,name,...r.participant};localStorage.setItem('rt_participant_session',JSON.stringify(session));await syncClock();joined();});};function joined(){$('joinPanel').classList.add('hidden');$('participantPanel').classList.remove('hidden');$('joinedRoom').textContent=session.roomCode;$('joinedName').textContent=session.name;$('connectionState').textContent='接続中';$('joinStatus').textContent=session.joinedDuringSession?'途中参加しました。次の試行から測定します。':'ホストの開始を待っています。';}
-$('stimulus').addEventListener('pointerdown',e=>{e.preventDefault();onInput('touch/pointer')});document.addEventListener('keydown',e=>{if([' ','Enter'].includes(e.key)){e.preventDefault();if(!e.repeat)onInput('keyboard')}});
-$('leaveBtn').onclick=()=>{if(confirm('退出しますか？'))socket.emit('participant:leave',{},()=>{localStorage.removeItem('rt_participant_session');location.reload()})};
-socket.on('connect',async()=>{const s=JSON.parse(localStorage.getItem('rt_participant_session')||'null');if(!s?.participantToken)return;session=s;socket.emit('participant:reconnect',{roomCode:s.roomCode,participantId:s.participantId,participantToken:s.participantToken},async r=>{if(r.ok){await syncClock();joined()}else $('reconnectNotice').textContent='以前の参加情報で再接続できません。'});});
-socket.on('disconnect',()=>{if(session){$('connectionState').textContent='切断';$('joinStatus').textContent='通信が切断されました。再接続を待っています。';active=false;armed=false;clearTimeout(scheduledTimer);paint('invalid','通信切断')}});
-socket.on('trial:scheduled',async d=>{if(!session)return;await syncClock();schedule(d)});socket.on('session:started',()=>{$('joinStatus').textContent='測定中です。画面が緑になったら入力してください。'});socket.on('session:paused',()=>{active=false;armed=false;clearTimeout(scheduledTimer);paint('waiting','一時停止中')});socket.on('session:resumed',()=>{$('joinStatus').textContent='測定再開。次の試行を待っています。'});async function getAllRows(){const db=await openDB();return await new Promise((resolve,reject)=>{const q=db.transaction(STORE,'readonly').objectStore(STORE).getAll();q.onsuccess=()=>resolve(q.result.filter(x=>x.sessionRoom===session.roomCode&&x.participantId===session.participantId));q.onerror=()=>reject(q.error)});}
-async function uploadResults(){await saveQueue;try{const rows=await getAllRows();const result=await new Promise(resolve=>socket.emit('participant:submit-results',{rows},resolve));if(result?.ok){$('trialInfo').textContent=`測定終了。${result.total}件をホストへ送信し、受信確認を受け取りました。端末内データも保持しています。`;}else{$('trialInfo').textContent='結果は端末内に保存されています。ホストへの送信に失敗しました：'+(result?.error||'通信エラー');}}catch(e){$('trialInfo').textContent='結果は端末内に保存されています。送信エラー：'+e.message;}}
-socket.on('session:finished',()=>{active=false;armed=false;clearTimeout(scheduledTimer);paint('result','測定終了');uploadResults();});socket.on('room:closed',()=>{$('joinStatus').textContent='ホストが部屋を終了しました。'});socket.on('participant:removed',()=>{localStorage.removeItem('rt_participant_session');session=null;$('joinStatus').textContent='ホストによって退出させられました。'});
+(() => {
+  'use strict';
+
+  const socket = io();
+  const $ = id => document.getElementById(id);
+
+  let session = null;
+  let offset = 0;
+  let active = false;
+  let armed = false;
+  let trialNo = 0;
+  let scheduledTimer = null;
+  let changePerf = 0;
+  let optionsVisible = true;
+  let saveQueue = Promise.resolve();
+
+  const DB_NAME = 'reactionTestStage3';
+  const STORE_NAME = 'trials';
+
+  function openDB() {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, 1);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async function save(row) {
+    saveQueue = saveQueue.then(async () => {
+      try {
+        const db = await openDB();
+        await new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE_NAME, 'readwrite');
+          tx.objectStore(STORE_NAME).add(row);
+          tx.oncomplete = resolve;
+          tx.onerror = () => reject(tx.error);
+          tx.onabort = () => reject(tx.error || new Error('保存処理が中断されました。'));
+        });
+        $('savedCount').textContent = String(Number($('savedCount').textContent) + 1);
+      } catch (error) {
+        $('trialInfo').textContent = '端末内保存に失敗しました：' + error.message;
+      }
+    });
+    return saveQueue;
+  }
+
+  function emitWithAck(eventName, payload, timeoutMs = 2500) {
+    return new Promise(resolve => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          resolve(null);
+        }
+      }, timeoutMs);
+      socket.emit(eventName, payload, result => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(result || null);
+      });
+    });
+  }
+
+  async function syncClock() {
+    const samples = [];
+    for (let i = 0; i < 5; i++) {
+      const t0 = performance.now();
+      const local0 = Date.now();
+      const data = await emitWithAck('clock:ping', {}, 2500);
+      const t1 = performance.now();
+      if (data && Number.isFinite(data.serverTime)) {
+        samples.push({
+          rtt: t1 - t0,
+          offset: data.serverTime - (local0 + (t1 - t0) / 2)
+        });
+      }
+    }
+    if (samples.length === 0) return Infinity;
+    samples.sort((a, b) => a.rtt - b.rtt);
+    offset = samples[0].offset;
+    return samples[0].rtt;
+  }
+
+  // 刺激領域は色だけで状態を示し、文字を表示しない。
+  function paint(state) {
+    const stimulus = $('stimulus');
+    stimulus.className = 'stimulus ' + state;
+    stimulus.textContent = '';
+  }
+
+  function setOptionsVisible(visible) {
+    optionsVisible = Boolean(visible);
+    $('optionsPanel').classList.toggle('hidden', !optionsVisible);
+    $('optionsToggle').setAttribute('aria-expanded', String(optionsVisible));
+    $('optionsToggle').setAttribute(
+      'aria-label',
+      optionsVisible ? 'オプションを非表示' : 'オプションを表示'
+    );
+    $('optionsToggle').textContent = optionsVisible ? '×' : '⚙';
+    document.body.classList.toggle('options-hidden', !optionsVisible);
+  }
+
+  function recordTrial(row) {
+    save(row);
+    // ホストには測定途中の反応時間を送らず、試行状態のみ通知する。
+    socket.emit('participant:trial-result', {
+      trialNumber: row.trialNumber,
+      status: row.status === 'recorded' ? 'recorded' : 'early'
+    });
+  }
+
+  function onInput(inputType) {
+    if (!session || !active || optionsVisible) return;
+
+    // 色が緑（待機）から赤（合図）へ変わる前の入力は早押し。
+    if (!armed) {
+      if ($('stimulus').classList.contains('waiting')) {
+        active = false;
+        armed = false;
+        clearTimeout(scheduledTimer);
+        paint('waiting');
+        $('trialInfo').textContent = '早押しとして記録しました。';
+        recordTrial({
+          recordId: crypto.randomUUID(),
+          sessionRoom: session.roomCode,
+          participantId: session.participantId,
+          participantName: session.name,
+          trialNumber: trialNo,
+          reactionTimeMs: null,
+          inputType,
+          status: 'invalid',
+          reason: 'early',
+          visibilityState: document.visibilityState,
+          createdAt: new Date().toISOString()
+        });
+      }
+      return;
+    }
+
+    // 1試行につき最初の入力だけを採用する。
+    armed = false;
+    active = false;
+    const inputPerf = performance.now();
+    const reactionTime = inputPerf - changePerf;
+
+    paint('waiting');
+    $('lastResult').textContent = reactionTime.toFixed(1) + ' ms';
+    $('trialInfo').textContent = `第${trialNo}回：記録しました（${inputType}）`;
+
+    recordTrial({
+      recordId: crypto.randomUUID(),
+      sessionRoom: session.roomCode,
+      participantId: session.participantId,
+      participantName: session.name,
+      trialNumber: trialNo,
+      reactionTimeMs: Number(reactionTime.toFixed(3)),
+      inputType,
+      localChangePerf: changePerf,
+      inputPerf,
+      clockOffsetMs: offset,
+      status: 'recorded',
+      visibilityState: document.visibilityState,
+      createdAt: new Date().toISOString()
+    });
+  }
+
+  function schedule(data) {
+    clearTimeout(scheduledTimer);
+    trialNo = Number(data.trialNumber) || 0;
+    active = true;
+    armed = false;
+    paint('waiting');
+    $('trialInfo').textContent = `第${trialNo}回：切り替わりを待っています`;
+
+    // サーバーから受け取った共通予定時刻を端末の時計に換算する。
+    const localTarget = Number(data.scheduledAt) - offset;
+    const delay = Math.max(0, localTarget - Date.now());
+
+    scheduledTimer = setTimeout(() => {
+      if (!active || document.visibilityState !== 'visible') {
+        active = false;
+        $('trialInfo').textContent = '画面が表示されていないため、この試行は無効です。';
+        return;
+      }
+      requestAnimationFrame(() => {
+        if (!active) return;
+        paint('go');
+        changePerf = performance.now();
+        armed = true;
+      });
+    }, delay);
+  }
+
+  function joined() {
+    $('joinPanel').classList.add('hidden');
+    $('pageHeader').classList.add('hidden');
+    $('pageFooter').classList.add('hidden');
+    $('participantPanel').classList.remove('hidden');
+    document.body.classList.add('participant-mode');
+
+    $('joinedRoom').textContent = session.roomCode;
+    $('joinedName').textContent = session.name || session.participantName || '';
+    $('connectionState').textContent = '接続中';
+    $('joinStatus').textContent = session.joinedDuringSession
+      ? '途中参加しました。次の試行から測定します。'
+      : 'ホストの開始を待っています。';
+
+    setOptionsVisible(true);
+    paint('waiting');
+  }
+
+  $('joinBtn').addEventListener('click', async () => {
+    const roomCode = $('roomInput').value.trim();
+    const name = $('nameInput').value.trim();
+    $('joinError').textContent = '';
+
+    socket.emit('participant:join', { roomCode, name }, async result => {
+      if (!result || !result.ok) {
+        $('joinError').textContent = result?.error || '接続できませんでした。';
+        return;
+      }
+      session = {
+        roomCode,
+        name,
+        ...result.participant
+      };
+      localStorage.setItem('rt_participant_session', JSON.stringify(session));
+      await syncClock();
+      joined();
+    });
+  });
+
+  $('optionsToggle').addEventListener('click', () => {
+    setOptionsVisible(!optionsVisible);
+  });
+  $('optionsClose').addEventListener('click', () => setOptionsVisible(false));
+
+  // オプションパネル上の操作は刺激領域に伝播させず、測定入力にも使わない。
+  $('optionsPanel').addEventListener('pointerdown', event => {
+    event.stopPropagation();
+  });
+
+  // 画面の色領域をタップした場合のみ反応入力にする。
+  $('stimulus').addEventListener('pointerdown', event => {
+    if (optionsVisible) return;
+    event.preventDefault();
+    onInput('pointer');
+  });
+
+  // オプション表示中はキーボードを測定に使わない。
+  // 非表示中かつ測定試行中は、修飾キーを含むすべてのキーを検出する。
+  // キーの長押しによる連続入力はevent.repeatで除外する。
+  document.addEventListener('keydown', event => {
+    if (!session || optionsVisible || !active) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (!event.repeat) onInput('keyboard');
+  }, true);
+
+  $('leaveBtn').addEventListener('click', () => {
+    if (!confirm('退出しますか？')) return;
+    socket.emit('participant:leave', {}, () => {
+      localStorage.removeItem('rt_participant_session');
+      location.reload();
+    });
+  });
+
+  socket.on('connect', async () => {
+    let stored = null;
+    try {
+      stored = JSON.parse(localStorage.getItem('rt_participant_session') || 'null');
+    } catch (_) {
+      localStorage.removeItem('rt_participant_session');
+    }
+    if (!stored?.participantToken) return;
+
+    session = stored;
+    socket.emit('participant:reconnect', {
+      roomCode: stored.roomCode,
+      participantId: stored.participantId,
+      participantToken: stored.participantToken
+    }, async result => {
+      if (result?.ok) {
+        session = { ...stored, ...result.participant };
+        await syncClock();
+        joined();
+      } else {
+        $('reconnectNotice').textContent = '以前の参加情報で再接続できません。';
+        $('reconnectNotice').classList.remove('hidden');
+      }
+    });
+  });
+
+  socket.on('disconnect', () => {
+    if (!session) return;
+    $('connectionState').textContent = '切断';
+    $('joinStatus').textContent = '通信が切断されました。再接続を待っています。';
+    active = false;
+    armed = false;
+    clearTimeout(scheduledTimer);
+    paint('waiting');
+  });
+
+  socket.on('trial:scheduled', async data => {
+    if (!session) return;
+    await syncClock();
+    schedule(data);
+  });
+
+  socket.on('session:started', () => {
+    $('joinStatus').textContent = '測定中です。画面の色が変わったら入力してください。';
+  });
+
+  socket.on('session:paused', () => {
+    active = false;
+    armed = false;
+    clearTimeout(scheduledTimer);
+    paint('waiting');
+    $('trialInfo').textContent = '一時停止中です。';
+  });
+
+  socket.on('session:resumed', () => {
+    $('joinStatus').textContent = '測定再開。次の試行を待っています。';
+  });
+
+  async function getAllRows() {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const request = db.transaction(STORE_NAME, 'readonly')
+        .objectStore(STORE_NAME).getAll();
+      request.onsuccess = () => resolve(request.result.filter(row =>
+        row.sessionRoom === session.roomCode &&
+        row.participantId === session.participantId
+      ));
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async function uploadResults() {
+    await saveQueue;
+    try {
+      const rows = await getAllRows();
+      const result = await emitWithAck('participant:submit-results', { rows }, 10000);
+      if (result?.ok) {
+        $('trialInfo').textContent =
+          `測定終了。${result.total}件をホストへ送信し、受信確認を受け取りました。端末内データも保持しています。`;
+      } else {
+        $('trialInfo').textContent =
+          '結果は端末内に保存されています。ホストへの送信に失敗しました：' +
+          (result?.error || '通信エラー');
+      }
+    } catch (error) {
+      $('trialInfo').textContent =
+        '結果は端末内に保存されています。送信エラー：' + error.message;
+    }
+  }
+
+  socket.on('session:finished', () => {
+    active = false;
+    armed = false;
+    clearTimeout(scheduledTimer);
+    paint('waiting');
+    $('trialInfo').textContent = '測定が終了しました。';
+    uploadResults();
+  });
+
+  socket.on('room:closed', () => {
+    $('joinStatus').textContent = 'ホストが部屋を終了しました。';
+  });
+
+  socket.on('participant:removed', () => {
+    localStorage.removeItem('rt_participant_session');
+    session = null;
+    active = false;
+    armed = false;
+    $('joinStatus').textContent = 'ホストによって退出させられました。';
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible' && active) {
+      active = false;
+      armed = false;
+      clearTimeout(scheduledTimer);
+      paint('waiting');
+      $('trialInfo').textContent = '画面が非表示になったため、現在の試行を中断しました。';
+    }
+  });
 })();
