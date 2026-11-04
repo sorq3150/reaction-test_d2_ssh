@@ -126,3 +126,24 @@ body.participant-mode #participantPanel {
     padding: 15px;
   }
 }
+
+
+/* 早押し・タイムアウトなどの一時メッセージ */
+.stimulus-message {
+  position: fixed;
+  z-index: 30;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: #fff;
+  font-size: clamp(30px, 7vw, 64px);
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-align: center;
+  text-shadow: 0 2px 12px rgba(0,0,0,.28);
+  pointer-events: none;
+  user-select: none;
+}
+.stimulus-message.hidden { display: none !important; }
