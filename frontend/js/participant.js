@@ -14,12 +14,16 @@
   let optionsVisible = true;
   let saveQueue = Promise.resolve();
 
-  const DB_NAME = 'reactionTestStage3';
+  const DB_NAME_PREFIX = 'reactionTestParticipant_';
   const STORE_NAME = 'trials';
 
   function openDB() {
+    if (!session?.participantId) {
+      return Promise.reject(new Error('参加者情報が確定していません。'));
+    }
+    const participantDBName = DB_NAME_PREFIX + String(session.participantId).replace(/[^a-zA-Z0-9_-]/g, '_');
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open(DB_NAME, 1);
+      const request = indexedDB.open(participantDBName, 1);
       request.onupgradeneeded = () => {
         const db = request.result;
         if (!db.objectStoreNames.contains(STORE_NAME)) {
@@ -95,6 +99,39 @@
     stimulus.textContent = '';
   }
 
+  let messageTimer = null;
+  function showStimulusMessage(message, duration = 1800) {
+    const node = $('stimulusMessage');
+    if (!node) return;
+    clearTimeout(messageTimer);
+    node.textContent = message;
+    node.classList.remove('hidden');
+    if (duration > 0) {
+      messageTimer = setTimeout(() => {
+        node.classList.add('hidden');
+        node.textContent = '';
+      }, duration);
+    }
+  }
+
+  function clearStimulusMessage() {
+    clearTimeout(messageTimer);
+    const node = $('stimulusMessage');
+    if (node) {
+      node.classList.add('hidden');
+      node.textContent = '';
+    }
+  }
+
+  function returnHome() {
+    active = false;
+    armed = false;
+    clearTimeout(scheduledTimer);
+    clearStimulusMessage();
+    localStorage.removeItem('rt_participant_session');
+    window.location.replace('/');
+  }
+
   function setOptionsVisible(visible) {
     optionsVisible = Boolean(visible);
     $('optionsPanel').classList.toggle('hidden', !optionsVisible);
@@ -126,6 +163,7 @@
         armed = false;
         clearTimeout(scheduledTimer);
         paint('waiting');
+        showStimulusMessage('早押し');
         $('trialInfo').textContent = '早押しとして記録しました。';
         recordTrial({
           recordId: crypto.randomUUID(),
@@ -147,6 +185,8 @@
     // 1試行につき最初の入力だけを採用する。
     armed = false;
     active = false;
+    clearTimeout(scheduledTimer);
+    clearStimulusMessage();
     const inputPerf = performance.now();
     const reactionTime = inputPerf - changePerf;
 
@@ -177,6 +217,7 @@
     active = true;
     armed = false;
     paint('waiting');
+    clearStimulusMessage();
     $('trialInfo').textContent = `第${trialNo}回：切り替わりを待っています`;
 
     // サーバーから受け取った共通予定時刻を端末の時計に換算する。
@@ -194,6 +235,29 @@
         paint('go');
         changePerf = performance.now();
         armed = true;
+
+        scheduledTimer = setTimeout(() => {
+          if (!active || !armed) return;
+          active = false;
+          armed = false;
+          paint('waiting');
+          showStimulusMessage('タイムアウト');
+          $('trialInfo').textContent = `第${trialNo}回：タイムアウト`;
+          recordTrial({
+            recordId: crypto.randomUUID(),
+            sessionRoom: session.roomCode,
+            participantId: session.participantId,
+            participantName: session.name,
+            trialNumber: trialNo,
+            reactionTimeMs: null,
+            inputType: 'none',
+            status: 'invalid',
+            reason: 'timeout',
+            visibilityState: document.visibilityState,
+            clockOffsetMs: offset,
+            createdAt: new Date().toISOString()
+          });
+        }, 3000);
       });
     }, delay);
   }
@@ -267,8 +331,7 @@
   $('leaveBtn').addEventListener('click', () => {
     if (!confirm('退出しますか？')) return;
     socket.emit('participant:leave', {}, () => {
-      localStorage.removeItem('rt_participant_session');
-      location.reload();
+      returnHome();
     });
   });
 
@@ -372,15 +435,11 @@
   });
 
   socket.on('room:closed', () => {
-    $('joinStatus').textContent = 'ホストが部屋を終了しました。';
+    returnHome();
   });
 
   socket.on('participant:removed', () => {
-    localStorage.removeItem('rt_participant_session');
-    session = null;
-    active = false;
-    armed = false;
-    $('joinStatus').textContent = 'ホストによって退出させられました。';
+    returnHome();
   });
 
   document.addEventListener('visibilitychange', () => {
