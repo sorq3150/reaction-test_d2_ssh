@@ -13,6 +13,9 @@
   let changePerf = 0;
   let optionsVisible = true;
   let saveQueue = Promise.resolve();
+  let sessionFinished = false;
+  let uploadPromise = null;
+  let lastClockSyncAt = 0;
 
   const DB_NAME_PREFIX = 'reactionTestParticipant_';
   const STORE_NAME = 'trials';
@@ -89,6 +92,7 @@
     if (samples.length === 0) return Infinity;
     samples.sort((a, b) => a.rtt - b.rtt);
     offset = samples[0].offset;
+    lastClockSyncAt = Date.now();
     return samples[0].rtt;
   }
 
@@ -146,11 +150,7 @@
 
   function recordTrial(row) {
     save(row);
-    // ホストには測定途中の反応時間を送らず、試行状態のみ通知する。
-    socket.emit('participant:trial-result', {
-      trialNumber: row.trialNumber,
-      status: row.status === 'recorded' ? 'recorded' : 'early'
-    });
+    // 測定中の試行ごとの通信は行わず、端末内へ保存する。
   }
 
   function onInput(inputType) {
@@ -354,6 +354,7 @@
         session = { ...stored, ...result.participant };
         await syncClock();
         joined();
+        if (result.status === 'finished') { sessionFinished = true; uploadResults(); }
       } else {
         $('reconnectNotice').textContent = '以前の参加情報で再接続できません。';
         $('reconnectNotice').classList.remove('hidden');
@@ -373,7 +374,17 @@
 
   socket.on('trial:scheduled', async data => {
     if (!session) return;
-    await syncClock();
+    // 時計補正は参加時に実施。長時間の測定では60秒に1回だけ軽量再同期する。
+    if (Date.now() - lastClockSyncAt > 60000) {
+      const t0 = performance.now();
+      const local0 = Date.now();
+      const ping = await emitWithAck('clock:ping', {}, 2500);
+      const t1 = performance.now();
+      if (ping && Number.isFinite(ping.serverTime)) {
+        offset = ping.serverTime - (local0 + (t1 - t0) / 2);
+        lastClockSyncAt = Date.now();
+      }
+    }
     schedule(data);
   });
 
@@ -407,25 +418,36 @@
   }
 
   async function uploadResults() {
-    await saveQueue;
-    try {
-      const rows = await getAllRows();
-      const result = await emitWithAck('participant:submit-results', { rows }, 10000);
-      if (result?.ok) {
+    if (uploadPromise) return uploadPromise;
+    uploadPromise = (async () => {
+      await saveQueue;
+      try {
+        const rows = await getAllRows();
+        let accepted = 0;
+        for (let i = 0; i < rows.length; i += 100) {
+          const batch = rows.slice(i, i + 100);
+          let result = null;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            result = await emitWithAck('participant:submit-results', { rows: batch }, 12000);
+            if (result?.ok) break;
+            await new Promise(resolve => setTimeout(resolve, 700 * (attempt + 1)));
+          }
+          if (!result?.ok) throw new Error(result?.error || '通信エラー。再接続後に再送信してください。');
+          accepted += result.accepted || 0;
+        }
         $('trialInfo').textContent =
-          `測定終了。${result.total}件をホストへ送信し、受信確認を受け取りました。端末内データも保持しています。`;
-      } else {
-        $('trialInfo').textContent =
-          '結果は端末内に保存されています。ホストへの送信に失敗しました：' +
-          (result?.error || '通信エラー');
+          `測定終了。端末内${rows.length}件を送信し、受信確認を受け取りました（新規登録${accepted}件）。`;
+      } catch (error) {
+        $('trialInfo').textContent = '結果は端末内に保持されています。送信に失敗しました：' + error.message;
+      } finally {
+        uploadPromise = null;
       }
-    } catch (error) {
-      $('trialInfo').textContent =
-        '結果は端末内に保存されています。送信エラー：' + error.message;
-    }
+    })();
+    return uploadPromise;
   }
 
   socket.on('session:finished', () => {
+    sessionFinished = true;
     active = false;
     armed = false;
     clearTimeout(scheduledTimer);
