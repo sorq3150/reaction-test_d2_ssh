@@ -1,8 +1,8 @@
 {
-  "name": "reaction-test-stage4",
-  "version": "0.4.0",
+  "name": "reaction-test-stage5",
+  "version": "0.5.0",
   "private": true,
-  "description": "Reaction-time measurement prototype - Stage 4",
+  "description": "Reaction-time measurement app Stage 5: persistent SQLite storage and scalable room capacity",
   "main": "backend/server.js",
   "scripts": {
     "start": "node backend/server.js",
@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "express": "^4.21.2",
-    "socket.io": "^4.8.1"
+    "socket.io": "^4.8.1",
+    "better-sqlite3": "^11.7.0"
   },
   "engines": {
     "node": ">=18"
