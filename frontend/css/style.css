@@ -147,3 +147,4 @@ body.participant-mode #participantPanel {
   user-select: none;
 }
 .stimulus-message.hidden { display: none !important; }
+.panel h3{font-size:14px;margin:18px 0 8px;color:#142744}
