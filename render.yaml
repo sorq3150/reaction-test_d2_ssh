@@ -1,0 +1,19 @@
+# Render Blueprint（任意）。ダッシュボードから手動設定する場合は README.md の手順を参照。
+# 注意: Persistent Disk は有料インスタンスで利用します（無料インスタンスでは使えません）。
+services:
+  - type: web
+    name: reaction-test
+    runtime: node
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: DB_PATH
+        value: /var/data/reaction-test.sqlite
+      - key: MAX_PARTICIPANTS
+        value: "100"
+    disk:
+      name: reaction-data
+      mountPath: /var/data
+      sizeGB: 1
+    # plan: starter   # ← 契約プランに合わせて指定（Disk利用には有料プランが必要）

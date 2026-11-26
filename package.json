@@ -1,19 +1,32 @@
 {
-  "name": "reaction-test-stage5",
-  "version": "0.5.0",
+  "name": "reaction-test",
+  "version": "0.6.0",
   "private": true,
-  "description": "Reaction-time measurement app Stage 5: persistent SQLite storage and scalable room capacity",
+  "description": "Reaction-time measurement web app for classroom research (Express + Socket.IO + SQLite)",
   "main": "backend/server.js",
   "scripts": {
     "start": "node backend/server.js",
-    "dev": "node --watch backend/server.js"
+    "dev": "node --watch backend/server.js",
+    "test": "node --test tests/server.test.js tests/client.test.js tests/host-ui.test.js",
+    "audit:prod": "npm audit --omit=dev",
+    "test:load": "node tests/load.js 1 10 30 50 100"
   },
   "dependencies": {
-    "express": "^4.21.2",
-    "socket.io": "^4.8.1",
-    "better-sqlite3": "^11.7.0"
+    "better-sqlite3": "^13.2.0",
+    "exceljs": "^4.4.0",
+    "express": "^4.22.3",
+    "helmet": "^8.3.0",
+    "socket.io": "^4.8.4"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.2.8",
+    "jsdom": "^31.0.1",
+    "socket.io-client": "^4.8.4"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22.23.5 <23"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
   }
 }
